@@ -51,6 +51,9 @@ Parser.prototype = {
 
   _processChunk: function(chunk) {
     var self = this;
+    if (!chunk) {
+      return;
+    }
     var data = self._remaining + self._decoder.decode(chunk);
 
     var start = 0;
@@ -89,16 +92,20 @@ fetch('wsport').then(function(response) {
     ws.onerror = reject;
   });
 }).then(function() {
-  return fetch('time');
+  ws.onmessage = function(event) {
+    console.log(event.data);
+  };
+  return fetch('time?time=1000&cycles=5&throttle=500');
 }).then(function(response) {
   var parser = new Parser(response.body);
-  /*
   parser.asyncRead().then(function handleChunk(chunk) {
-    console.log(chunk.timestamp);
+    if (ws.readyState !== WebSocket.OPEN) {
+      return;
+    }
     ws.send(chunk.timestamp);
     parser.asyncRead().then(handleChunk);
   });
-  */
+  /*
   parser.ready.then(function handleReady() {
     var chunk = parser.syncRead();
     while (chunk) {
@@ -110,4 +117,5 @@ fetch('wsport').then(function(response) {
     }
     parser.ready.then(handleReady);
   });
+  */
 });

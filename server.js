@@ -8,22 +8,27 @@ var WebSocketServer = require('ws').Server;
 var httpPort = 5000;
 var wsPort = httpPort + 1;
 
-function TimePump(outputStream, wsconn) {
+function TimePump(outputStream, wsconn, opts) {
   var self = (this instanceof TimePump)
            ? this
            : Object.create(TimePump.prototype);
 
-  self._numCycles = 4;
-  self._cycleRunTime = 5000;
+  opts = opts || {};
+
+  self._numCycles = opts.cycles || 4;
+  self._cycleRunTime = opts.time || 5000;
   self._firstResultTime;
   self._results = [];
-  self._allowedTimestamps = 4096;
+  self._allowedTimestamps = opts.throttle || 4096;
   self._outputStream = outputStream;
+  self._wsconn = wsconn;
 
-  wsconn.on('message', function(message) {
+  self._wsconn.on('message', function(message) {
     self._processResult(message);
     if (self._numCycles === 0) {
-      wsconn.close();
+      self._outputStream.end();
+      self._wsconn.close();
+      self._done();
       return;
     }
     self._allowedTimestamps += 1;
@@ -32,9 +37,12 @@ function TimePump(outputStream, wsconn) {
     }
   });
 
-  self._writeTime();
-
   return self;
+};
+
+TimePump.prototype.execute = function(done) {
+  this._done = done;
+  this._writeTime();
 };
 
 TimePump.prototype._displayResults = function(runTime) {
@@ -53,8 +61,8 @@ TimePump.prototype._displayResults = function(runTime) {
   // runtime is in milliseconds... convert to ops/sec
   var bw = 1000 * this._results.length / runTime;
 
-  console.log(~~bw + ' ops/sec, latency min:' + ~~min + ' mean:' + ~~mean +
-              ' max:' + ~~max + ' ms');
+  this._wsconn.send(~~bw + ' ops/sec, latency min:' + ~~min + ' mean:' +
+                    ~~mean + ' max:' + ~~max + ' ms');
 };
 
 TimePump.prototype._processResult = function(timestamp) {
@@ -76,7 +84,6 @@ TimePump.prototype._processResult = function(timestamp) {
 
 TimePump.prototype._writeTime = function() {
   if (this._numCycles === 0) {
-    this._outputStream.end();
     return;
   }
   if (this._allowedTimestamps === 0) {
@@ -84,9 +91,10 @@ TimePump.prototype._writeTime = function() {
   }
   this._allowedTimestamps -= 1;
   if (this._outputStream.write(Date.now() + '\n')) {
-    setImmediate(this._writeTime.bind(this));
+    //setImmediate(this._writeTime.bind(this));
+    this._writeTime();
   } else {
-    outputStream.once('drain', this._writeTime.bind(this));
+    this._outputStream.once('drain', this._writeTime.bind(this));
   }
 }
 
@@ -96,8 +104,10 @@ wss.on('connection', function(conn) {
   wsConnection = conn;
 });
 
+var pump;
 var server = http.createServer(function(req, res) {
-  var reqPath = url.parse(req.url).pathname;
+  var reqUrl = url.parse(req.url, true /* parse query */);
+  var reqPath = reqUrl.pathname;
   if (reqPath === '/') {
     reqPath = 'index.html';
   }
@@ -109,8 +119,16 @@ var server = http.createServer(function(req, res) {
   }
 
   if (reqPath === '/time') {
+    if (pump) {
+      res.writeHead(503);
+      res.end();
+      return;
+    }
     res.writeHead(200);
-    var pump = new TimePump(res, wsConnection);
+    pump = new TimePump(res, wsConnection, reqUrl.query);
+    pump.execute(function() {
+      pump = null;
+    });
     return;
   }
 
