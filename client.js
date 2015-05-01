@@ -22,9 +22,12 @@ Parser.prototype = {
 
   syncRead: function() {
     if (this._values.length > 0) {
-      return this._values.shift();
+      var result = this._values.shift();
+      if (this._values.length === 0) {
+        this._readChunk();
+      }
+      return result;
     }
-    this._readChunk();
     return null;
   },
 
@@ -57,7 +60,7 @@ Parser.prototype = {
         break;
       }
       self._values.push({
-         timestamp: data.substring(start, eol - 1)
+         timestamp: data.substring(start, eol)
       });
       start = eol + 1;
     }
@@ -72,11 +75,39 @@ Parser.prototype = {
   },
 }
 
-fetch('time').then(function(response) {
+var ws;
+
+fetch('wsport').then(function(response) {
+  return response.text();
+}).then(function(text) {
+  var url = new URL('/', window.location);
+  url.protocol = 'ws:';
+  url.port = ~~text;
+  ws = new WebSocket(url);
+  return new Promise(function(resolve, reject) {
+    ws.onopen = resolve;
+    ws.onerror = reject;
+  });
+}).then(function() {
+  return fetch('time');
+}).then(function(response) {
   var parser = new Parser(response.body);
+  /*
   parser.asyncRead().then(function handleChunk(chunk) {
-    // TODO: post parsed timestamps back to the server
-    console.log(chunk);
+    console.log(chunk.timestamp);
+    ws.send(chunk.timestamp);
     parser.asyncRead().then(handleChunk);
+  });
+  */
+  parser.ready.then(function handleReady() {
+    var chunk = parser.syncRead();
+    while (chunk) {
+      if (ws.readyState !== WebSocket.OPEN) {
+        return;
+      }
+      ws.send(chunk.timestamp);
+      var chunk = parser.syncRead();
+    }
+    parser.ready.then(handleReady);
   });
 });
