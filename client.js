@@ -78,44 +78,178 @@ Parser.prototype = {
   },
 }
 
-var ws;
+function SyncPump(parser, socket) {
+  var self = (this instanceof SyncPump)
+           ? this
+           : Object.create(SyncPump.prototype);
 
-fetch('wsport').then(function(response) {
-  return response.text();
-}).then(function(text) {
-  var url = new URL('/', window.location);
-  url.protocol = 'ws:';
-  url.port = ~~text;
-  ws = new WebSocket(url);
-  return new Promise(function(resolve, reject) {
-    ws.onopen = resolve;
-    ws.onerror = reject;
-  });
-}).then(function() {
-  ws.onmessage = function(event) {
-    console.log(event.data);
-  };
-  return fetch('time?time=1000&cycles=5&throttle=500');
-}).then(function(response) {
-  var parser = new Parser(response.body);
-  parser.asyncRead().then(function handleChunk(chunk) {
-    if (ws.readyState !== WebSocket.OPEN) {
-      return;
-    }
-    ws.send(chunk.timestamp);
-    parser.asyncRead().then(handleChunk);
-  });
-  /*
-  parser.ready.then(function handleReady() {
-    var chunk = parser.syncRead();
+  self._parser = parser;
+  self._socket = socket;
+
+  return self;
+}
+
+SyncPump.prototype.execute = function() {
+  var self = this;
+  return self._parser.ready.then(function handleReady() {
+    var chunk = self._parser.syncRead();
     while (chunk) {
-      if (ws.readyState !== WebSocket.OPEN) {
+      if (self._socket.readyState !== WebSocket.OPEN) {
         return;
       }
-      ws.send(chunk.timestamp);
-      var chunk = parser.syncRead();
+      self._socket.send(chunk.timestamp);
+      var chunk = self._parser.syncRead();
     }
-    parser.ready.then(handleReady);
+    return self._parser.ready.then(handleReady);
   });
-  */
-});
+};
+
+function UnchainedSyncPump(parser, socket) {
+  var self = (this instanceof SyncPump)
+           ? this
+           : Object.create(SyncPump.prototype);
+
+  self._parser = parser;
+  self._socket = socket;
+
+  return self;
+}
+
+UnchainedSyncPump.prototype.execute = function() {
+  var self = this;
+  return new Promise(function(resolve, reject) {
+    self._parser.ready.then(function handleReady() {
+      var chunk = self._parser.syncRead();
+      while (chunk) {
+        if (self._socket.readyState !== WebSocket.OPEN) {
+          resolve();
+          return;
+        }
+        self._socket.send(chunk.timestamp);
+        var chunk = self._parser.syncRead();
+      }
+      self._parser.ready.then(handleReady);
+    });
+  });
+};
+
+function AsyncPump(parser, socket) {
+  var self = (this instanceof AsyncPump)
+           ? this
+           : Object.create(AsyncPump.prototype);
+
+  self._parser = parser;
+  self._socket = socket;
+
+  return self;
+}
+
+AsyncPump.prototype.execute = function() {
+  var self = this;
+  return self._parser.asyncRead().then(function handleChunk(chunk) {
+    if (self._socket.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    self._socket.send(chunk.timestamp);
+    return self._parser.asyncRead().then(handleChunk);
+  });
+};
+
+function UnchainedAsyncPump(parser, socket) {
+  var self = (this instanceof AsyncPump)
+           ? this
+           : Object.create(AsyncPump.prototype);
+
+  self._parser = parser;
+  self._socket = socket;
+
+  return self;
+}
+
+UnchainedAsyncPump.prototype.execute = function() {
+  var self = this;
+  return new Promise(function(resolve, reject) {
+    self._parser.asyncRead().then(function handleChunk(chunk) {
+      if (self._socket.readyState !== WebSocket.OPEN) {
+        resolve();
+        return;
+      }
+      self._socket.send(chunk.timestamp);
+      self._parser.asyncRead().then(handleChunk);
+    });
+  });
+};
+
+function executeTest(opts) {
+  opts.mode = opts.mode || 'sync';
+  opts.time = opts.time || 5000;
+  opts.cycles = opts.cycles || 2;
+  opts.throttle = opts.throttle || 500;
+
+  var ws;
+  var lastData;
+
+  return fetch('wsport').then(function(response) {
+    return response.text();
+  }).then(function(text) {
+    var url = new URL('/', window.location);
+    url.protocol = 'ws:';
+    url.port = ~~text;
+    ws = new WebSocket(url);
+    return new Promise(function(resolve, reject) {
+      ws.onopen = resolve;
+      ws.onerror = reject;
+    });
+  }).then(function() {
+    ws.onmessage = function(event) {
+      lastData = event.data;
+    };
+    return fetch('time?time=' + opts.time +
+                 '&cycles=' + opts.cycles +
+                 '&throttle=' + opts.throttle);
+  }).then(function(response) {
+    var parser = new Parser(response.body);
+    var pump;
+    if (opts.mode === 'sync') {
+      pump = new SyncPump(parser, ws);
+    } else if (opts.mode === 'unchained-sync') {
+      pump = new UnchainedSyncPump(parser, ws);
+    } else if (opts.mode === 'async') {
+      pump = new AsyncPump(parser, ws);
+    } else if (opts.mode === 'unchained-async') {
+      pump = new UnchainedAsyncPump(parser, ws);
+    }
+    return pump.execute();
+  }).then(function() {
+    return lastData;
+  });
+}
+
+function displayText(text) {
+  var child = document.createElement('div');
+  child.textContent = text;
+  var parent = document.getElementById('results');
+  parent.appendChild(child);
+  parent.appendChild(document.createElement('br'));
+}
+
+function executeTestList(list) {
+  return new Promise(function(resolve, reject) {
+    var test = list.shift();
+    if (!test) {
+      resolve();
+      return;
+    }
+    return executeTest(test).then(function(result) {
+      displayText(JSON.stringify(test) + ' => ' + result);
+      executeTestList(list);
+    });
+  });
+}
+
+executeTestList([
+  { mode: 'sync' },
+  { mode: 'unchained-sync' },
+  { mode: 'async' },
+  { mode: 'unchained-async' },
+]);
