@@ -1,5 +1,13 @@
 'use strict';
 
+function displayText(text) {
+  var child = document.createElement('div');
+  child.textContent = text;
+  var parent = document.getElementById('results');
+  parent.appendChild(child);
+  parent.appendChild(document.createElement('br'));
+}
+
 function Parser(source) {
   var self = (this instanceof Parser)
            ? this
@@ -54,6 +62,7 @@ Parser.prototype = {
     if (!chunk) {
       return;
     }
+
     var data = self._remaining + self._decoder.decode(chunk);
 
     var start = 0;
@@ -225,29 +234,35 @@ function executeTest(opts) {
   });
 }
 
-function displayText(text) {
-  var child = document.createElement('div');
-  child.textContent = text;
-  var parent = document.getElementById('results');
-  parent.appendChild(child);
-  parent.appendChild(document.createElement('br'));
-}
-
 function executeTestList(list) {
-  return new Promise(function(resolve, reject) {
-    var test = list.shift();
-    if (!test) {
-      resolve();
-      return;
-    }
-    return executeTest(test).then(function(result) {
-      displayText(JSON.stringify(test) + ' => ' + result);
-      executeTestList(list);
-    });
+  var test = list.shift();
+  if (!test) {
+    resolve();
+    return;
+  }
+  executeTest(test).then(function(result) {
+    displayText(JSON.stringify(test) + ' => ' + result);
+    executeTestList(list);
   });
 }
 
 executeTestList([
+  { mode: 'sync' },
+  { mode: 'unchained-sync' },
+  { mode: 'async' },
+  { mode: 'unchained-async' },
+  { mode: 'sync' },
+  { mode: 'unchained-sync' },
+  { mode: 'async' },
+  { mode: 'unchained-async' },
+  { mode: 'sync' },
+  { mode: 'unchained-sync' },
+  { mode: 'async' },
+  { mode: 'unchained-async' },
+  { mode: 'sync' },
+  { mode: 'unchained-sync' },
+  { mode: 'async' },
+  { mode: 'unchained-async' },
   { mode: 'sync' },
   { mode: 'unchained-sync' },
   { mode: 'async' },
