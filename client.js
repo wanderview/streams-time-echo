@@ -5,7 +5,6 @@ function displayText(text) {
   child.textContent = text;
   var parent = document.getElementById('results');
   parent.appendChild(child);
-  parent.appendChild(document.createElement('br'));
 }
 
 function Parser(source) {
@@ -237,7 +236,7 @@ function executeTest(opts) {
 function executeTestList(list) {
   var test = list.shift();
   if (!test) {
-    resolve();
+    displayText('Done');
     return;
   }
   executeTest(test).then(function(result) {
@@ -246,7 +245,19 @@ function executeTestList(list) {
   });
 }
 
+displayText('Starting...');
 executeTestList([
+  { mode: 'async' },
+  { mode: 'async' },
+  { mode: 'async' },
+  { mode: 'async' },
+  { mode: 'async' },
+  { mode: 'sync' },
+  { mode: 'sync' },
+  { mode: 'sync' },
+  { mode: 'sync' },
+  { mode: 'sync' },
+  /*
   { mode: 'sync' },
   { mode: 'unchained-sync' },
   { mode: 'async' },
@@ -263,8 +274,5 @@ executeTestList([
   { mode: 'unchained-sync' },
   { mode: 'async' },
   { mode: 'unchained-async' },
-  { mode: 'sync' },
-  { mode: 'unchained-sync' },
-  { mode: 'async' },
-  { mode: 'unchained-async' },
+  */
 ]);
